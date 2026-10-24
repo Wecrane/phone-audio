@@ -1,0 +1,12 @@
+# Build outputs
+/target
+/bin/
+/dist/
+/vendor/downloads/
+/vendor/scrcpy-patched/verify/*.exe
+
+# Runtime logs / local junk
+*.log
+*.tmp
+Thumbs.db
+.DS_Store

@@ -1,0 +1,21 @@
+# 统一换行：shell 脚本必须保持 LF，否则 Linux/CI 上会报
+# "bash: /usr/bin/env: bad interpreter: No such file or directory"。
+* text=auto
+*.sh text eol=lf
+*.bash text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+
+# Windows 脚本按 CRLF 检出（PowerShell 两者都接受）。
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做换行/文本处理。
+*.png binary
+*.ico binary
+*.jpg binary
+*.zip binary
+*.gz binary
+*.jar binary

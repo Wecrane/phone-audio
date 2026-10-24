@@ -1,0 +1,294 @@
+diff --git a/app/src/audio_player.c b/app/src/audio_player.c
+index 98a5f70..4ec84a2 100644
+--- a/app/src/audio_player.c
++++ b/app/src/audio_player.c
+@@ -1,14 +1,67 @@
+ #include "audio_player.h"
+ 
++#include <stdio.h>
++#include <string.h>
++
+ #include "util/log.h"
+ #include "util/memory.h"
+ #include "SDL3/SDL_hints.h"
++#include "SDL3/SDL_init.h"
+ 
+ /** Downcast frame_sink to sc_audio_player */
+ #define DOWNCAST(SINK) container_of(SINK, struct sc_audio_player, frame_sink)
+ 
+ #define SC_SDL_SAMPLE_FMT SDL_AUDIO_F32LE
+ 
++bool
++sc_audio_player_list_devices(void) {
++    if (!SDL_Init(SDL_INIT_AUDIO)) {
++        LOGE("Could not initialize SDL audio: %s", SDL_GetError());
++        return false;
++    }
++
++    int count;
++    SDL_AudioDeviceID *devices = SDL_GetAudioPlaybackDevices(&count);
++    if (!devices) {
++        LOGE("Could not list audio output devices: %s", SDL_GetError());
++        SDL_Quit();
++        return false;
++    }
++
++    for (int i = 0; i < count; ++i) {
++        const char *name = SDL_GetAudioDeviceName(devices[i]);
++        if (name) {
++            printf("%s\n", name);
++        }
++    }
++
++    SDL_free(devices);
++    SDL_Quit();
++    return true;
++}
++
++static bool
++sc_audio_player_find_device(const char *name, SDL_AudioDeviceID *device) {
++    int count;
++    SDL_AudioDeviceID *devices = SDL_GetAudioPlaybackDevices(&count);
++    if (!devices) {
++        return false;
++    }
++
++    bool found = false;
++    for (int i = 0; i < count; ++i) {
++        const char *device_name = SDL_GetAudioDeviceName(devices[i]);
++        if (device_name && !strcmp(device_name, name)) {
++            *device = devices[i];
++            found = true;
++            break;
++        }
++    }
++
++    SDL_free(devices);
++    return found;
++}
++
+ static void SDLCALL
+ sc_audio_player_stream_callback(void *userdata, SDL_AudioStream *stream,
+                                 int additional_amount, int total_amount) {
+@@ -103,8 +156,19 @@ sc_audio_player_frame_sink_open(struct sc_frame_sink *sink,
+         .channels = nb_channels,
+     };
+ 
+-    ap->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+-                                           &spec,
++    SDL_AudioDeviceID device = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
++    if (ap->output_device_name) {
++        if (!sc_audio_player_find_device(ap->output_device_name, &device)) {
++            LOGE("Audio output device not found: %s",
++                 ap->output_device_name);
++            LOGE("List the available devices with --list-audio-devices");
++            free(ap->aout_buffer);
++            sc_audio_regulator_destroy(&ap->audioreg);
++            return false;
++        }
++    }
++
++    ap->stream = SDL_OpenAudioDeviceStream(device, &spec,
+                                            sc_audio_player_stream_callback, ap);
+     if (!ap->stream) {
+         LOGE("Could not open audio device: %s", SDL_GetError());
+@@ -146,9 +210,11 @@ sc_audio_player_frame_sink_close(struct sc_frame_sink *sink) {
+ 
+ void
+ sc_audio_player_init(struct sc_audio_player *ap, sc_tick target_buffering,
+-                     sc_tick output_buffer_duration) {
++                     sc_tick output_buffer_duration,
++                     const char *output_device_name) {
+     ap->target_buffering_delay = target_buffering;
+     ap->output_buffer_duration = output_buffer_duration;
++    ap->output_device_name = output_device_name;
+ 
+     static const struct sc_frame_sink_ops ops = {
+         .open = sc_audio_player_frame_sink_open,
+diff --git a/app/src/audio_player.h b/app/src/audio_player.h
+index 786200b..2a2bca2 100644
+--- a/app/src/audio_player.h
++++ b/app/src/audio_player.h
+@@ -22,6 +22,9 @@ struct sc_audio_player {
+     // SDL audio output buffer size
+     sc_tick output_buffer_duration;
+ 
++    // SDL audio output device name, or NULL for the default device
++    const char *output_device_name;
++
+     uint8_t *aout_buffer;
+     size_t aout_buffer_size;
+ 
+@@ -30,8 +33,19 @@ struct sc_audio_player {
+     struct sc_audio_regulator audioreg;
+ };
+ 
++/**
++ * List the audio output devices available on the computer (one name per line)
++ *
++ * This does not require any Android device.
++ *
++ * @return true on success
++ */
++bool
++sc_audio_player_list_devices(void);
++
+ void
+ sc_audio_player_init(struct sc_audio_player *ap, sc_tick target_buffering,
+-                     sc_tick audio_output_buffer);
++                     sc_tick audio_output_buffer,
++                     const char *output_device_name);
+ 
+ #endif
+diff --git a/app/src/cli.c b/app/src/cli.c
+index c751ec8..2786de1 100644
+--- a/app/src/cli.c
++++ b/app/src/cli.c
+@@ -64,9 +64,11 @@ enum {
+     OPT_AUDIO_ENCODER,
+     OPT_LIST_ENCODERS,
+     OPT_LIST_DISPLAYS,
++    OPT_LIST_AUDIO_DEVICES,
+     OPT_REQUIRE_AUDIO,
+     OPT_AUDIO_BUFFER,
+     OPT_AUDIO_OUTPUT_BUFFER,
++    OPT_AUDIO_OUTPUT_DEVICE,
+     OPT_NO_VIDEO,
+     OPT_NO_AUDIO_PLAYBACK,
+     OPT_NO_VIDEO_PLAYBACK,
+@@ -251,6 +253,17 @@ static const struct sc_option options[] = {
+                 "Do not change this setting unless you have a good reason.\n"
+                 "Default is 10.",
+     },
++    {
++        .longopt_id = OPT_AUDIO_OUTPUT_DEVICE,
++        .longopt = "audio-output-device",
++        .argdesc = "name",
++        .text = "Select the audio output device on the computer (SDL audio "
++                "device name).\n"
++                "The available device names can be listed by "
++                "--list-audio-devices.\n"
++                "If not set (or set to an empty name), the default audio "
++                "output device is used.",
++    },
+     {
+         .shortopt = 'b',
+         .longopt = "video-bit-rate",
+@@ -501,6 +514,12 @@ static const struct sc_option options[] = {
+         .longopt = "list-apps",
+         .text = "List Android apps installed on the device.",
+     },
++    {
++        .longopt_id = OPT_LIST_AUDIO_DEVICES,
++        .longopt = "list-audio-devices",
++        .text = "List the audio output devices available on the computer (this "
++                "does not require any Android device).",
++    },
+     {
+         .longopt_id = OPT_LIST_CAMERAS,
+         .longopt = "list-cameras",
+@@ -2868,6 +2887,9 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
+             case OPT_LIST_APPS:
+                 opts->list |= SC_OPTION_LIST_APPS;
+                 break;
++            case OPT_LIST_AUDIO_DEVICES:
++                args->list_audio_devices = true;
++                break;
+             case OPT_REQUIRE_AUDIO:
+                 opts->require_audio = true;
+                 break;
+@@ -2882,6 +2904,10 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
+                     return false;
+                 }
+                 break;
++            case OPT_AUDIO_OUTPUT_DEVICE:
++                // An empty device name means the default device
++                opts->audio_output_device = optarg[0] ? optarg : NULL;
++                break;
+             case OPT_VIDEO_SOURCE:
+                 if (!parse_video_source(optarg, &opts->video_source)) {
+                     return false;
+diff --git a/app/src/cli.h b/app/src/cli.h
+index 9aa38dc..e58dbb5 100644
+--- a/app/src/cli.h
++++ b/app/src/cli.h
+@@ -18,6 +18,7 @@ struct scrcpy_cli_args {
+     struct scrcpy_options opts;
+     bool help;
+     bool version;
++    bool list_audio_devices;
+     enum sc_pause_on_exit pause_on_exit;
+ };
+ 
+diff --git a/app/src/main.c b/app/src/main.c
+index 89d7829..1d4daa6 100644
+--- a/app/src/main.c
++++ b/app/src/main.c
+@@ -8,6 +8,7 @@
+ #include <SDL3/SDL.h>
+ 
+ #include "cli.h"
++#include "audio_player.h"
+ #include "events.h"
+ #include "options.h"
+ #include "scrcpy.h"
+@@ -40,6 +41,7 @@ main_scrcpy(int argc, char *argv[]) {
+         .opts = scrcpy_options_default,
+         .help = false,
+         .version = false,
++        .list_audio_devices = false,
+         .pause_on_exit = SC_PAUSE_ON_EXIT_UNDEFINED,
+     };
+ 
+@@ -76,6 +78,13 @@ main_scrcpy(int argc, char *argv[]) {
+         goto end;
+     }
+ 
++    if (args.list_audio_devices) {
++        // This only needs SDL, no Android device is required
++        ret = sc_audio_player_list_devices() ? SCRCPY_EXIT_SUCCESS
++                                             : SCRCPY_EXIT_FAILURE;
++        goto end;
++    }
++
+ #ifdef HAVE_V4L2
+     if (args.opts.v4l2_device) {
+         avdevice_register_all();
+diff --git a/app/src/options.c b/app/src/options.c
+index 97b23de..d02bdab 100644
+--- a/app/src/options.c
++++ b/app/src/options.c
+@@ -13,6 +13,7 @@ const struct scrcpy_options scrcpy_options_default = {
+     .audio_codec_options = NULL,
+     .video_encoder = NULL,
+     .audio_encoder = NULL,
++    .audio_output_device = NULL,
+     .camera_id = NULL,
+     .camera_size = NULL,
+     .camera_ar = NULL,
+diff --git a/app/src/options.h b/app/src/options.h
+index 1eba9a8..a6fce44 100644
+--- a/app/src/options.h
++++ b/app/src/options.h
+@@ -273,6 +273,7 @@ struct scrcpy_options {
+     const char *audio_codec_options;
+     const char *video_encoder;
+     const char *audio_encoder;
++    const char *audio_output_device;
+     const char *camera_id;
+     const char *camera_size;
+     const char *camera_ar;
+diff --git a/app/src/scrcpy.c b/app/src/scrcpy.c
+index 0967e5d..c8f79b2 100644
+--- a/app/src/scrcpy.c
++++ b/app/src/scrcpy.c
+@@ -926,7 +926,8 @@ aoa_complete:
+ 
+     if (options->audio_playback) {
+         sc_audio_player_init(&s->audio_player, options->audio_buffer,
+-                             options->audio_output_buffer);
++                             options->audio_output_buffer,
++                             options->audio_output_device);
+         sc_frame_source_add_sink(&s->audio_decoder.frame_source,
+                                  &s->audio_player.frame_sink);
+     }

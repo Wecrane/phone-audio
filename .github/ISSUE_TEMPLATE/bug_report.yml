@@ -1,0 +1,68 @@
+name: Bug report
+description: Something is not working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove device serial numbers and private IP
+        addresses before posting logs.
+  - type: input
+    id: version
+    attributes:
+      label: Phone Audio version
+      placeholder: "v0.5.2 (shown at the bottom of the Settings menu)"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / desktop
+      placeholder: "Windows 11 23H2, Linux distro + desktop"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone / Android
+      placeholder: "e.g. Pixel 8, Android 15; USB or wireless"
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options:
+        - USB
+        - Wireless debugging
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / diagnostics
+      description: Use "Diagnostics → Copy diagnostics" and redact private data.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I am running the latest release / build.
+          required: true
+        - label: I removed private device serials and IP addresses.
+          required: true

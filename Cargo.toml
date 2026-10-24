@@ -1,0 +1,37 @@
+[package]
+name = "phone-audio"
+version = "0.5.2"
+edition = "2021"
+rust-version = "1.95"
+description = "Stream Android audio to a Windows/Linux PC without a virtual sound card"
+license = "MIT"
+repository = "https://github.com/Wecrane/phone-audio"
+homepage = "https://github.com/Wecrane/phone-audio"
+readme = "README.md"
+keywords = ["android", "audio", "scrcpy", "adb", "streaming"]
+categories = ["gui", "multimedia", "utilities"]
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "system_fonts",
+    "wayland",
+    "web_screen_reader",
+    "x11",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Keep line tables so a crash report is actionable, while dropping full debug info.
+strip = "debuginfo"
+debug = 1
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = { version = "0.26", default-features = false }

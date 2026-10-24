@@ -1,0 +1,37 @@
+Phone Audio
+Copyright (c) 2026 Phone Audio contributors
+
+This product invokes and may redistribute the following third-party software:
+
+1. scrcpy
+   https://github.com/Genymobile/scrcpy
+   Copyright (C) 2018 Genymobile
+   Copyright (C) 2018-2025 Romain Vimont
+   Licensed under the Apache License, Version 2.0.
+
+2. Android Debug Bridge (adb), Android SDK Platform-Tools
+   https://developer.android.com/tools/releases/platform-tools
+   Copyright (C) The Android Open Source Project
+   Licensed under the Apache License, Version 2.0.
+
+3. FFmpeg libraries distributed with scrcpy (avcodec, avformat, avutil,
+   swresample)
+   https://ffmpeg.org
+   Licensed under the GNU Lesser General Public License, version 2.1 or later
+   (LGPL-2.1-or-later), depending on the build.
+
+4. SDL2, used by scrcpy
+   https://www.libsdl.org
+   Licensed under the zlib license.
+
+5. Opus, used by scrcpy
+   https://opus-codec.org
+   Licensed under the BSD 3-Clause license.
+
+This project is not affiliated with or endorsed by Genymobile, the scrcpy
+project, Google, or the Android Open Source Project. "scrcpy" is used only to
+describe the upstream technology.
+
+If you distribute binaries, keep this NOTICE, the upstream LICENSE files and
+THIRD_PARTY_LICENSES.md alongside the application. If you modify scrcpy, mark
+the modified files and state the changes, as required by Apache-2.0 section 4.

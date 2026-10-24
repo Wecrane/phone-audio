@@ -1,0 +1,114 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      # 先用 warning-only（不加 -D warnings），避免历史代码的普通告警直接阻塞发布；
+      # 待 lint 清零后可改为 `cargo clippy --all-targets -- -D warnings`。
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Fetch scrcpy + adb
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts/fetch-windows-deps.ps1
+
+      # 仓库里带着输出设备补丁版 scrcpy.exe；fetch 脚本会叠加它并校验 SHA-256。
+      # 这里再确认一次，避免打包出“没有选择输出设备能力”的 Windows 包。
+      - name: Verify bundled scrcpy (output device patch)
+        shell: powershell
+        run: |
+          $help = & .\bin\scrcpy.exe --help 2>&1 | Out-String
+          if ($help -notmatch '--audio-output-device') {
+            throw "bundled scrcpy.exe lacks --audio-output-device (the patched build was not applied)"
+          }
+          & .\bin\scrcpy.exe --version
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: phone-audio-windows-x64
+          path: dist/phone-audio-windows-x64.zip
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # eframe 0.37 (egui 0.37 / winit) 在 Linux 上需要：
+      # X11 + XCB、Wayland、xkbcommon、GL/EGL 的开发包；curl/unzip 供
+      # scripts/fetch-linux-deps.sh 下载并解压依赖。
+      # libudev1：fetch 脚本会执行 bin/scrcpy --version，静态包里的 scrcpy
+      #           动态依赖 libudev.so.1（Ubuntu 基础镜像一般已有，显式安装更稳）。
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config curl unzip ca-certificates libudev1 \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libwayland-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libusb-1.0-0
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Fetch scrcpy + adb
+        run: bash scripts/fetch-linux-deps.sh
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: bash scripts/package-linux.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: phone-audio-linux-x86_64
+          path: dist/phone-audio-linux-x86_64.tar.gz
+          if-no-files-found: error
