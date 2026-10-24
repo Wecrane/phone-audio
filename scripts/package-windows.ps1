@@ -79,7 +79,9 @@ try {
         throw "补丁版 scrcpy 没有 --audio-output-device，拒绝打包"
     }
 
-    $zip = Join-Path $root "dist\phone-audio-windows-x64.zip"
+    $dist_dir = Join-Path $root "dist"
+    New-Item -ItemType Directory -Force -Path $dist_dir | Out-Null
+    $zip = Join-Path $dist_dir "phone-audio-windows-x64.zip"
     Remove-Item $zip -Force -ErrorAction SilentlyContinue
     Compress-Archive -Path $pkg -DestinationPath $zip -Force
 
